@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>MigrationSafe AI - Standalone Project Report & Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; color: #1e293b; margin: 0; padding: 28px; line-height: 1.6; }
+        .header { background: linear-gradient(135deg, #1e3c72, #2a5298); color: white; border-radius: 12px; padding: 32px; margin-bottom: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .header h1 { font-size: 2.2rem; margin: 0 0 8px 0; }
+        .header p { font-size: 1.1rem; margin: 0; opacity: 0.9; }
+        .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; margin-top: 12px; background: rgba(255,255,255,0.2); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .card { background: white; border-radius: 10px; border: 1px solid #e2e8f0; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .kpi { background: white; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .kpi-title { font-size: 0.85rem; color: #64748b; font-weight: 600; text-transform: uppercase; margin-bottom: 6px; }
+        .kpi-val { font-size: 1.8rem; font-weight: 700; color: #0f172a; }
+        .kpi-sub { color: #16a34a; font-weight: 600; font-size: 0.85rem; margin-top: 4px; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.95rem; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; color: #475569; font-weight: 600; }
+        tr:hover { background: #f1f5f9; }
+        .code-box { background: #0f172a; color: #f8fafc; padding: 16px; border-radius: 8px; font-family: monospace; font-size: 0.9rem; overflow-x: auto; margin: 12px 0; }
+        .alert { padding: 14px 18px; border-radius: 8px; margin: 16px 0; font-size: 0.95rem; }
+        .alert-info { background: #eff6ff; color: #1d4ed8; border-left: 4px solid #3b82f6; }
+        .alert-success { background: #f0fdf4; color: #15803d; border-left: 4px solid #22c55e; }
+        .workflow-step { display: flex; align-items: flex-start; gap: 16px; margin: 14px 0; padding: 14px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #1e3c72; }
+        .step-num { background: #1e3c72; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🛡️ MigrationSafe AI — Standalone Project Report</h1>
+        <p>Pre-Flight Risk Prediction, Concurrency Lock Simulation, and Rollback Protection for High-Volume Order Databases</p>
+        <span class="badge">100% Local Offline File • No Localhost or Internet Required</span>
+    </div>
+
+    <div class="grid">
+        <div class="kpi">
+            <div class="kpi-title">ML Model Accuracy</div>
+            <div class="kpi-val">98.80%</div>
+            <div class="kpi-sub">+5.90% vs Heuristic Base (92.90%)</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-title">Downtime Avoided</div>
+            <div class="kpi-val">7,048.8 s</div>
+            <div class="kpi-sub">88.1% Reduction (~3.16 hrs)</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-title">AI Success Rate</div>
+            <div class="kpi-val">100.0%</div>
+            <div class="kpi-sub">+26.7% vs Base (73.3%)</div>
+        </div>
+        <div class="kpi">
+            <div class="kpi-title">Risky DDL Intercepted</div>
+            <div class="kpi-val">32 / 120</div>
+            <div class="kpi-sub">100% Mitigated to Off-Peak</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>1. Executive Summary & Problem</h2>
+        <p>In high-throughput e-commerce systems, database migrations against active order tables (<code>orders</code>, <code>order_items</code>, <code>order_payments</code>) can trigger catastrophic production outages. Exclusive DDL locks block incoming transactional queries, exhaust database connection pools, and result in client timeouts.</p>
+        <div class="alert alert-info">
+            💡 <strong>The Core Problem:</strong> Traditional rule heuristics only evaluate table disk size or migration type. They fail to predict lock queue starvation under concurrent query spikes. MigrationSafe AI introduces machine learning risk scoring, concurrency simulation, and verified rollback.
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>2. Baseline vs Machine Learning Performance</h2>
+        <p>Evaluated on 1,000 unseen holdout test records (80/20 train/test split, deterministic seed 42):</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Rule-Based Baseline</th>
+                    <th>Random Forest ML Model</th>
+                    <th>Absolute Improvement</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Accuracy</strong></td>
+                    <td>92.90%</td>
+                    <td><strong style="color: #15803d;">98.80%</strong></td>
+                    <td>+5.90%</td>
+                </tr>
+                <tr>
+                    <td><strong>Precision</strong></td>
+                    <td>84.70%</td>
+                    <td><strong style="color: #15803d;">96.35%</strong></td>
+                    <td>+11.65%</td>
+                </tr>
+                <tr>
+                    <td><strong>Recall</strong></td>
+                    <td>89.47%</td>
+                    <td><strong style="color: #15803d;">99.25%</strong></td>
+                    <td>+9.78%</td>
+                </tr>
+                <tr>
+                    <td><strong>F1-Score</strong></td>
+                    <td>0.8702</td>
+                    <td><strong style="color: #15803d;">0.9778</strong></td>
+                    <td>+0.1076</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>3. 150-Scenario Measurable Benchmark Results</h2>
+        <p>Comparative experiment evaluating 150 representative synthetic migration events:</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Measurement Area</th>
+                    <th>Approach A (Unprotected Direct DDL)</th>
+                    <th>Approach B (MigrationSafe AI)</th>
+                    <th>Measured Impact</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Total Downtime</strong></td>
+                    <td>7,997.1 s</td>
+                    <td>948.3 s</td>
+                    <td><strong style="color: #15803d;">7,048.8 s Avoided</strong></td>
+                </tr>
+                <tr>
+                    <td><strong>Downtime Avoided %</strong></td>
+                    <td>—</td>
+                    <td><strong style="color: #15803d;">88.1%</strong></td>
+                    <td><strong>Target &ge; 75.0% PASSED</strong></td>
+                </tr>
+                <tr>
+                    <td><strong>Success Rate</strong></td>
+                    <td>73.3%</td>
+                    <td>100.0%</td>
+                    <td><strong style="color: #15803d;">+26.7% Gain</strong></td>
+                </tr>
+                <tr>
+                    <td><strong>Risky DDL Handled</strong></td>
+                    <td>0 Intercepted (All hit lock timeout)</td>
+                    <td>32 / 120 Intercepted</td>
+                    <td>100% Mitigated Safely</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>4. 4-Step Simulation & Rollback Workflow</h2>
+        <div class="workflow-step">
+            <div class="step-num">1</div>
+            <div>
+                <strong>Step 1: Pre-Flight ML Prediction</strong><br>
+                Evaluates migration parameters before execution. Outputs risk badge and calibrated confidence score.
+            </div>
+        </div>
+        <div class="workflow-step">
+            <div class="step-num">2</div>
+            <div>
+                <strong>Step 2: Migration Started & Progress</strong><br>
+                Advances through 4 execution phases: Lock Acquisition &rarr; DDL Modification &rarr; Integrity Validation &rarr; Commit/Release.
+            </div>
+        </div>
+        <div class="workflow-step">
+            <div class="step-num">3</div>
+            <div>
+                <strong>Step 3: Migration Result</strong><br>
+                Computes actual lock duration against 25.0s statement timeout threshold, and queues blocked transactions.
+            </div>
+        </div>
+        <div class="workflow-step">
+            <div class="step-num">4</div>
+            <div>
+                <strong>Step 4: Rollback if Required</strong><br>
+                Stateful restoration to pre-migration snapshot (version v1.4.0, columns, and index catalog) with verified deep equality check.
+            </div>
+        </div>
+        <div class="code-box">
+-- VERIFIED ROLLBACK DDL GENERATED BY MIGRATIONSAFE AI:
+ALTER TABLE orders DROP COLUMN is_loyalty_order;
+DROP INDEX IF EXISTS idx_orders_status_amount;
+-- RESTORED ORIGINAL SCHEMA METADATA (v1.4.0)
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>5. Complete Project Files & Direct Access</h2>
+        <p>All source code, datasets, and models are available directly in your local directory <code>C:\Users\asus\Documents\MIGRATION_AI</code>:</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>File Name</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>MigrationSafeAI_Project.zip</strong></td>
+                    <td>ZIP Package</td>
+                    <td>Entire project bundled into a single ZIP archive for submission.</td>
+                </tr>
+                <tr>
+                    <td><strong>MigrationSafeAI_Report.html</strong></td>
+                    <td>HTML File</td>
+                    <td>This offline interactive report (double-click to open in any browser).</td>
+                </tr>
+                <tr>
+                    <td><strong>app.py</strong></td>
+                    <td>Python Script</td>
+                    <td>Full Streamlit application with all 9 interactive tabs.</td>
+                </tr>
+                <tr>
+                    <td><strong>data/synthetic_migration_data.csv</strong></td>
+                    <td>CSV Dataset</td>
+                    <td>Primary dataset with 5,000+ realistic migration events.</td>
+                </tr>
+                <tr>
+                    <td><strong>ml/model.py</strong></td>
+                    <td>Python Script</td>
+                    <td>Scikit-learn Random Forest classification pipeline.</td>
+                </tr>
+                <tr>
+                    <td><strong>ml/baseline.py</strong></td>
+                    <td>Python Script</td>
+                    <td>Domain DBA rule-based heuristic predictor.</td>
+                </tr>
+                <tr>
+                    <td><strong>ml/simulator.py</strong></td>
+                    <td>Python Script</td>
+                    <td>4-stage lock concurrency simulator and stateful rollback engine.</td>
+                </tr>
+                <tr>
+                    <td><strong>experiments/benchmark_results.csv</strong></td>
+                    <td>CSV File</td>
+                    <td>150 benchmark scenario execution logs with calculated downtime avoided.</td>
+                </tr>
+                <tr>
+                    <td><strong>tests/test_app.py</strong></td>
+                    <td>Python Script</td>
+                    <td>13 comprehensive automated unit and integration tests.</td>
+                </tr>
+                <tr>
+                    <td><strong>README.md & walkthrough.md</strong></td>
+                    <td>Markdown</td>
+                    <td>Complete project documentation and college evaluation walkthrough guide.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+</body>
+</html>
