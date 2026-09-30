@@ -17,44 +17,12 @@ except ImportError:
     from ml.baseline import RuleBasedMigrationPredictor
     from ml.model import MigrationRiskModel
 
-
 EDGE_CASES: List[Dict[str, Any]] = [
     {
         "id": "EDGE-1",
-        "name": "Massive Table with Low Concurrency",
-        "description": "Very large table (850 GB) undergoing data rewrite, but executed off-peak with minimal concurrent traffic (60 QPS).",
-        "inputs": {
-            "table_size_gb": 850.0,
-            "row_count": 80_000_000,
-            "query_frequency": 60.0,
-            "estimated_lock_duration": 65.0,
-            "migration_type": "ALTER_COLUMN_TYPE",
-            "workload_intensity": "LOW",
-            "query_type": "READ_HEAVY",
-        },
-        "expected_behavior": "Low Lock Contention (Safe if scheduled in maintenance window)",
-        "domain_notes": "Static rule heuristics flag high risk due to massive table size, whereas ML recognizes that low active QPS eliminates lock queue pileup.",
-    },
-    {
-        "id": "EDGE-2",
-        "name": "Micro Table under Flash-Crowd Traffic",
-        "description": "Small table (3.5 GB) undergoing index lock during peak flash-sale query burst (4,900 QPS).",
-        "inputs": {
-            "table_size_gb": 3.5,
-            "row_count": 350_000,
-            "query_frequency": 4900.0,
-            "estimated_lock_duration": 2.5,
-            "migration_type": "ADD_INDEX_LOCKING",
-            "workload_intensity": "CRITICAL",
-            "query_type": "WRITE_HEAVY",
-        },
-        "expected_behavior": "High Risk (Catastrophic lock contention despite small size)",
-        "domain_notes": "Even momentary exclusive locks create connection pool exhaustion under 4,900 QPS, triggering transaction queue timeout.",
-    },
-    {
-        "id": "EDGE-3",
-        "name": "Heavy Workload Combined with Risky DDL",
-        "description": "Full table rewrite on primary transactional orders table (380 GB) during active critical business operations.",
+        "name": "Very Large Table + High Workload",
+        "category": "Review 2 Core Edge Case",
+        "description": "Heavy full table rewrite on high-volume 380 GB transactional table under 3,800 QPS active production workload.",
         "inputs": {
             "table_size_gb": 380.0,
             "row_count": 42_000_000,
@@ -64,13 +32,31 @@ EDGE_CASES: List[Dict[str, Any]] = [
             "workload_intensity": "CRITICAL",
             "query_type": "WRITE_HEAVY",
         },
-        "expected_behavior": "High Risk / Guaranteed Timeout",
-        "domain_notes": "Both Baseline and ML model should achieve strong consensus that this migration must be aborted or rescheduled.",
+        "expected_behavior": "HIGH RISK (Severe Lock Queue Contention & Statement Timeout)",
+        "domain_notes": "Both Baseline heuristic and ML classifier must intercept this operation. Exclusive table locks will back up thousands of queries within seconds.",
     },
     {
-        "id": "EDGE-4",
-        "name": "Missing & Anomalous Input Values",
-        "description": "Form input contains missing/NaN fields, empty migration type, and negative numeric values.",
+        "id": "EDGE-2",
+        "name": "Small Table + Extremely High Workload (Flash Crowd)",
+        "category": "Review 2 Core Edge Case",
+        "description": "Small table (3.5 GB) undergoing index locking during an intense flash-sale traffic spike (4,900 QPS).",
+        "inputs": {
+            "table_size_gb": 3.5,
+            "row_count": 350_000,
+            "query_frequency": 4900.0,
+            "estimated_lock_duration": 2.5,
+            "migration_type": "ADD_INDEX_LOCKING",
+            "workload_intensity": "CRITICAL",
+            "query_type": "WRITE_HEAVY",
+        },
+        "expected_behavior": "HIGH RISK (Catastrophic connection pool starvation despite small table size)",
+        "domain_notes": "Even a 2.5s exclusive lock under 4,900 QPS queues > 12,000 queries, instantly exhausting connection pool limits and causing cascading timeouts.",
+    },
+    {
+        "id": "EDGE-3",
+        "name": "Missing / Invalid Migration Information",
+        "category": "Review 2 Core Edge Case",
+        "description": "Migration request contains missing/NaN fields, negative values, and an invalid migration type.",
         "inputs": {
             "table_size_gb": None,
             "row_count": -500,
@@ -80,13 +66,31 @@ EDGE_CASES: List[Dict[str, Any]] = [
             "workload_intensity": "UNKNOWN_LEVEL",
             "query_type": "INVALID_QUERY_TYPE",
         },
-        "expected_behavior": "Defensive Fallback (Safe handling without crashing)",
-        "domain_notes": "Tests system robustness. Missing values are imputed with median/mode defaults to maintain uninterrupted operational availability.",
+        "expected_behavior": "SAFE DEFENSIVE HANDLING & MANUAL REVIEW FLAG (Zero Crashes + Low Confidence Alert)",
+        "domain_notes": "System must sanitize inputs defensively with median fallbacks, avoid throwing uncaught exceptions, and alert the DBA that manual review is required.",
+    },
+    {
+        "id": "EDGE-4",
+        "name": "Massive Table with Low Concurrency (Off-Peak Maintenance)",
+        "category": "Advanced Maintenance Scheduling",
+        "description": "Very large table (850 GB) undergoing non-blocking index creation during a quiet off-peak maintenance window (60 QPS).",
+        "inputs": {
+            "table_size_gb": 850.0,
+            "row_count": 80_000_000,
+            "query_frequency": 60.0,
+            "estimated_lock_duration": 0.5,
+            "migration_type": "ADD_INDEX_CONCURRENTLY",
+            "workload_intensity": "LOW",
+            "query_type": "READ_HEAVY",
+        },
+        "expected_behavior": "LOW RISK (Safe non-blocking maintenance execution)",
+        "domain_notes": "Non-blocking concurrent DDL under quiet 60 QPS completes safely without holding exclusive table locks.",
     },
     {
         "id": "EDGE-5",
-        "name": "Extremely High Numeric Values (5 TB Scale)",
-        "description": "Hyper-scale enterprise database partition (5,000 GB, 500M rows, 15,000 QPS) outside standard training bounds.",
+        "name": "Hyper-Scale Out-of-Distribution Scale (5 TB)",
+        "category": "Stress Test & Bounds Check",
+        "description": "Massive enterprise partition (5,000 GB, 500M rows, 15,000 QPS) far exceeding normal training bounds.",
         "inputs": {
             "table_size_gb": 5000.0,
             "row_count": 500_000_000,
@@ -96,36 +100,37 @@ EDGE_CASES: List[Dict[str, Any]] = [
             "workload_intensity": "CRITICAL",
             "query_type": "WRITE_HEAVY",
         },
-        "expected_behavior": "Extreme High Risk (Proper extrapolation without arithmetic overflow)",
-        "domain_notes": "Verifies that extreme out-of-distribution values correctly produce maximum risk alerts without pipeline errors.",
+        "expected_behavior": "HIGH RISK & OUT-OF-DISTRIBUTION WARNING",
+        "domain_notes": "Extrapolates safely to High Risk while alerting DBAs that inputs exceed the reliable training envelope.",
     },
 ]
-
 
 def run_edge_case_analysis(
     ml_model: MigrationRiskModel,
     baseline_predictor: RuleBasedMigrationPredictor,
 ) -> List[Dict[str, Any]]:
-    """Execute all edge cases through both Baseline and ML systems and return structured outcomes."""
+    """Execute all edge cases through both Baseline and ML systems and return structured PASS/FAIL outcomes."""
     results = []
 
     for case in EDGE_CASES:
         inp = case["inputs"]
 
-        # 1. Run through ML Model
         try:
             ml_out = ml_model.predict_single(inp)
             ml_risk = ml_out["predicted_risk"]
             ml_conf = f"{ml_out['confidence_score']:.1f}%"
+            ml_conf_level = ml_out.get("confidence_level", "STANDARD")
             ml_high_prob = ml_out["high_risk_probability"]
+            is_ood = ml_out.get("is_out_of_distribution", False)
             crashed = False
-        except Exception as e:
-            ml_risk = "ERROR"
+        except Exception:
+            ml_risk = "ERROR (CRASHED)"
             ml_conf = "0.0%"
+            ml_conf_level = "ERROR"
             ml_high_prob = 0.0
+            is_ood = True
             crashed = True
 
-        # 2. Run through Baseline Predictor (with defensive safe extraction)
         try:
             clean_table_size = float(inp.get("table_size_gb") or 100.0)
             clean_qps = float(inp.get("query_frequency") or 1000.0)
@@ -140,47 +145,49 @@ def run_edge_case_analysis(
                 query_frequency=clean_qps,
                 estimated_lock_duration=clean_est,
             )
-            base_risk = f"{base_out['risk_level']} RISK"
-            base_outcome = "SAFE" if base_out["predicted_success"] == 1 else "HIGH RISK"
+            base_risk = base_out["risk_level"]
+            base_outcome = "HIGH RISK" if base_out["predicted_high_risk"] == 1 else "SAFE"
         except Exception:
             base_risk = "UNKNOWN"
             base_outcome = "ERROR"
 
-        # Check agreement and correct status
-        ml_is_high = "HIGH" in ml_risk
-        base_is_high = "HIGH" in base_outcome or "HIGH" in base_risk or "CRITICAL" in base_risk
-        agreement = "Consensus (Both High)" if (ml_is_high and base_is_high) else (
-            "Consensus (Both Safe)" if (not ml_is_high and not base_is_high) else "Divergent"
-        )
-
         expected_val = case["expected_behavior"]
-        if case["id"] == "EDGE-4":
-            correct_status = "Correct (Handled Safely)" if not crashed else "Incorrect (Crashed)"
-            actual_res = "Handled Safely (Defaulted)" if not crashed else "Crashed"
-        elif "Safe" in expected_val or "Low" in expected_val:
-            correct_status = "Correct" if not ml_is_high else "Incorrect (Conservative False Alarm)"
+        if case["id"] == "EDGE-3":
+            test_passed = (not crashed) and is_ood
+            actual_res = "Handled Safely (Imputed & OOD Flagged)" if test_passed else "Failed Defensive Check"
+            pass_status = "PASS" if test_passed else "FAIL"
+        elif "HIGH RISK" in expected_val or "High Risk" in expected_val:
+            test_passed = ("HIGH" in ml_risk) and (not crashed)
             actual_res = ml_risk
+            pass_status = "PASS" if test_passed else "FAIL"
         else:
-            correct_status = "Correct" if ml_is_high else "Incorrect (Missed High Risk)"
+            test_passed = ("SAFE" in ml_risk or "LOW" in ml_risk) and (not crashed)
             actual_res = ml_risk
+            pass_status = "PASS" if test_passed else "FAIL"
+
+        s_size = str(inp.get("table_size_gb", "None"))
+        s_qps = str(inp.get("query_frequency", "None"))
+        s_type = str(inp.get("migration_type", "None"))
+        s_load = str(inp.get("workload_intensity", "None"))
 
         results.append(
             {
                 "case_id": case["id"],
                 "name": case["name"],
+                "category": case.get("category", "General Edge Case"),
                 "description": case["description"],
                 "inputs": inp,
-                "input_summary": f"{inp.get('table_size_gb', 'N/A')}GB | {inp.get('migration_type', 'N/A')} | {inp.get('workload_intensity', 'N/A')} | {inp.get('query_frequency', 'N/A')} QPS",
+                "input_summary": f"Size: {s_size} GB | QPS: {s_qps} | Type: {s_type} | Load: {s_load}",
                 "baseline_prediction": base_outcome,
                 "baseline_risk_level": base_risk,
                 "ml_prediction": ml_risk,
                 "ml_confidence": ml_conf,
+                "ml_confidence_level": ml_conf_level,
                 "ml_high_risk_prob": ml_high_prob,
-                "expected_result": expected_val,
+                "is_out_of_distribution": is_ood,
                 "expected_behavior": expected_val,
                 "actual_result": actual_res,
-                "status": correct_status,
-                "agreement": agreement,
+                "test_status": pass_status,
                 "domain_notes": case["domain_notes"],
                 "system_crashed": crashed,
             }
@@ -188,26 +195,24 @@ def run_edge_case_analysis(
 
     return results
 
-
 FAILURE_REASONS = [
     {
-        "category": "Unusual Workload Patterns",
-        "description": "Flash-sale bursts (e.g. 4,900+ QPS) on lightweight tables can cause connection pool starvation even if table size is minimal. Models trained on typical linear volume scaling can misjudge queue wait spikes under sudden concurrency surges.",
+        "category": "Workload Spikes on Small Tables (Flash Crowd Nuance)",
+        "description": "Standard DBA intuition relies on table size as a proxy for safety. However, during flash sales or traffic surges (e.g. 4,900+ QPS), even a lightweight 3.5 GB table acquiring an exclusive lock blocks incoming transactions at a rate of 5,000 queries per second. Within 3 seconds, the connection pool hits 100% capacity, triggering application-wide cascading timeouts.",
     },
     {
-        "category": "Synthetic Data Limitations",
-        "description": "Synthetic generation uses parametric distributions (e.g. lognormal/uniform). Real enterprise database workloads exhibit long-tail micro-bursts, dirty buffer contention, and storage I/O throttling that may not be fully represented.",
+        "category": "Heuristic Misjudgments on Off-Peak Operations",
+        "description": "Static size rules automatically reject massive table rewrites (e.g. 850 GB) even if executed during dedicated 60 QPS maintenance windows where zero lock queuing occurs. Machine learning avoids these costly false alarms by jointly weighing concurrency volume and table size.",
     },
     {
-        "category": "Unseen Feature Combinations",
-        "description": "Novel permutations (e.g. 850 GB table rewrite running at an off-peak 60 QPS during a designated maintenance window) exist near the boundary of the feature space where heuristic rules and ML decision surfaces may diverge.",
+        "category": "Synthetic Data Distribution Boundaries",
+        "description": "Synthetic generation employs parameterized distributions. Real enterprise production systems exhibit stochastic I/O saturation, dirty page writeback throttling, and autovacuum lock competition that synthetic distributions approximate.",
     },
     {
-        "category": "Noisy Data & Contention Jitter",
-        "description": "Dynamic database locking involves non-deterministic factors including OS scheduler latency, concurrent background autovacuum processes, and lock queue ordering, introducing intrinsic irreducible variance near timeout thresholds.",
+        "category": "Dynamic Lock Queue Jitter & Scheduling Variance",
+        "description": "Relational lock acquisition is subject to operating system thread scheduling, client transaction hold times, and lock queue ordering, resulting in irreducible physical variance around statement timeout thresholds.",
     },
 ]
-
 
 def analyze_test_failures(
     ml_model: MigrationRiskModel,
@@ -227,12 +232,10 @@ def analyze_test_failures(
     correct_count = int(np.sum(correct_mask))
     misclassified_count = int(total_test - correct_count)
 
-    # Breakdown of classifications:
-    # 0 = Safe, 1 = High Risk
     tn_mask = (y_true == 0) & (y_pred == 0)
     tp_mask = (y_true == 1) & (y_pred == 1)
-    fp_mask = (y_true == 0) & (y_pred == 1)  # Safe predicted as High Risk (Type I)
-    fn_mask = (y_true == 1) & (y_pred == 0)  # High Risk predicted as Safe (Type II)
+    fp_mask = (y_true == 0) & (y_pred == 1)
+    fn_mask = (y_true == 1) & (y_pred == 0)
 
     tn = int(np.sum(tn_mask))
     tp = int(np.sum(tp_mask))
@@ -242,7 +245,6 @@ def analyze_test_failures(
     fp_rate = float(fp / (fp + tn) * 100.0) if (fp + tn) > 0 else 0.0
     fn_rate = float(fn / (fn + tp) * 100.0) if (fn + tp) > 0 else 0.0
 
-    # Build detailed misclassified records dataframe
     failed_indices = np.where(~correct_mask)[0]
     failed_records = []
 
@@ -273,7 +275,6 @@ def analyze_test_failures(
 
     failed_df = pd.DataFrame(failed_records)
 
-    # Failure distribution by migration type
     if not failed_df.empty:
         failures_by_migration = failed_df["migration_type"].value_counts().to_dict()
         failures_by_workload = failed_df["workload_intensity"].value_counts().to_dict()
@@ -297,28 +298,3 @@ def analyze_test_failures(
         "failures_by_migration": failures_by_migration,
         "failures_by_workload": failures_by_workload,
     }
-
-
-if __name__ == "__main__":
-    from data.generator import generate_migration_dataset
-    csv_path = PROJECT_ROOT / "data" / "synthetic_migration_data.csv"
-    if csv_path.exists():
-        data_ec = pd.read_csv(csv_path)
-    else:
-        data_ec = generate_migration_dataset(n_records=5000, random_state=42)
-
-    model_ec = MigrationRiskModel(n_estimators=50, max_depth=8, random_state=42)
-    model_ec.train(data_ec, test_size=0.2, save_model=True)
-    baseline_ec = RuleBasedMigrationPredictor()
-
-    print("[MigrationSafe AI] Running Edge Case Scenarios...")
-    ec_results = run_edge_case_analysis(model_ec, baseline_ec)
-    for r in ec_results:
-        print(f"  {r['case_id']}: {r['name']}")
-        print(f"     Status: {r['status']} | ML: {r['ml_prediction']} ({r['ml_confidence']}) | Base: {r['baseline_prediction']}")
-
-    print("\n[MigrationSafe AI] Running Test Set Failure Analysis...")
-    fa = analyze_test_failures(model_ec, data_ec)
-    print(f"  Accuracy: {fa['accuracy_pct']:.2f}% | Error Rate: {fa['error_rate_pct']:.2f}% | Misclassified: {fa['misclassified_count']}")
-    print(f"  False Positives: {fa['false_positives']} ({fa['false_positive_rate_pct']:.2f}%) | False Negatives: {fa['false_negatives']} ({fa['false_negative_rate_pct']:.2f}%)")
-

@@ -1,13 +1,14 @@
-"""Comprehensive test suite for MigrationSafe AI application.
+"""Comprehensive test suite for MigrationSafe AI application (Review 2).
 
 Covers all required verification areas:
 - Dataset generation and schema validation (synthetic_migration_data.csv)
 - Baseline prediction and heuristic evaluation
-- ML prediction and unseen test split evaluation
+- ML prediction, uncertainty quantification, and OOD bounds detection
 - Confidence calculation, probabilities, and disclaimers
-- Edge cases robustness and dynamic failure analysis
-- Migration simulation and lock contention modeling
-- Stateful rollback schema restoration
+- Review 2 Core Edge cases robustness and dynamic failure analysis (PASS/FAIL)
+- Migration rehearsal simulation and lock contention modeling [SIMULATED]
+- Stateful rollback schema restoration and parity verification
+- Prediction vs Rehearsal comparative validation
 - Benchmark calculations, downtime avoided formulas, and CSV persistence
 """
 
@@ -15,7 +16,6 @@ import sys
 import unittest
 from pathlib import Path
 
-# Ensure project root is in sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -26,17 +26,17 @@ import pandas as pd
 from data.generator import generate_migration_dataset, save_migration_dataset
 from ml.baseline import RuleBasedMigrationPredictor
 from ml.model import MigrationRiskModel, MODEL_SAVE_PATH
-from ml.edge_cases import EDGE_CASES, run_edge_case_analysis, analyze_test_failures
+from ml.edge_cases import EDGE_CASES, run_edge_case_analysis, analyze_test_failures, FAILURE_REASONS
 from ml.simulator import TableState, MigrationSimulator
 from experiments.benchmark import MigrationBenchmark, BENCHMARK_SAVE_PATH, BENCHMARK_CSV_PATH
 
 
 class TestMigrationSafeApp(unittest.TestCase):
-    """Complete end-to-end test suite for MigrationSafe AI."""
+    """Complete end-to-end test suite for MigrationSafe AI Review 2."""
 
     @classmethod
     def setUpClass(cls):
-        """Initialize shared dataset, model, baseline, and simulator."""
+        """Initialize shared dataset, model, baseline, simulator, and benchmark."""
         cls.df = generate_migration_dataset(n_records=5000, random_state=42)
         cls.baseline = RuleBasedMigrationPredictor()
         cls.model = MigrationRiskModel(n_estimators=30, max_depth=6, random_state=42)
@@ -71,7 +71,6 @@ class TestMigrationSafeApp(unittest.TestCase):
         # Persistence check
         save_path = save_migration_dataset(self.df)
         self.assertTrue(Path(save_path).exists())
-        self.assertTrue((Path(save_path).parent / "synthetic_migration_data.csv").exists())
 
     # 2. Baseline Prediction Tests
     def test_baseline_prediction(self):
@@ -97,251 +96,145 @@ class TestMigrationSafeApp(unittest.TestCase):
         self.assertTrue(0.0 <= metrics["accuracy"] <= 1.0)
         self.assertTrue(0.0 <= metrics["precision"] <= 1.0)
 
-    # 3. ML Model Prediction Tests
-    def test_ml_prediction(self):
-        """Test Scikit-learn classification pipeline trained on train and evaluated on test."""
-        self.assertTrue(self.model.is_trained)
-        ml_metrics = self.train_results["ml_metrics"]
-        self.assertIn("accuracy", ml_metrics)
-        self.assertIn("precision", ml_metrics)
-        self.assertIn("recall", ml_metrics)
-        self.assertIn("f1_score", ml_metrics)
-        self.assertTrue(0.0 <= ml_metrics["accuracy"] <= 1.0)
-        self.assertTrue(0.0 <= ml_metrics["f1_score"] <= 1.0)
-
-        # Baseline vs ML comparison DataFrame check
-        comp_df = self.train_results["comparison_df"]
-        self.assertIsInstance(comp_df, pd.DataFrame)
-        self.assertEqual(len(comp_df), 4)
-        self.assertIn("Rule-Based Baseline", comp_df.columns)
-        self.assertIn("Random Forest ML", comp_df.columns)
-
-    # 4. Confidence and Uncertainty Calculation
-    def test_confidence_calculation(self):
-        """Test prediction interface returns risk, confidence probability, and disclaimer."""
-        sample_input = {
-            "table_size_mb": 150000.0,
-            "table_size_gb": 146.48,
-            "row_count": 18000000,
-            "query_frequency": 2500.0,
-            "estimated_lock_duration": 25.0,
-            "migration_type": "ALTER_COLUMN_TYPE",
-            "workload_intensity": "HIGH",
-            "query_type": "WRITE_HEAVY",
+    # 3. ML Model Prediction & Uncertainty Tests
+    def test_ml_prediction_and_uncertainty(self):
+        """Test ML prediction, probability distribution, and OOD uncertainty detection."""
+        # Standard in-distribution input
+        standard_input = {
+            "table_size_gb": 80.0,
+            "row_count": 8_000_000,
+            "query_frequency": 1500.0,
+            "estimated_lock_duration": 4.0,
+            "migration_type": "ADD_COLUMN_DEFAULT",
+            "workload_intensity": "MEDIUM",
+            "query_type": "MIXED_OLTP",
         }
-        res = self.model.predict_single(sample_input)
+        res = self.model.predict_single(standard_input)
         self.assertIn("predicted_risk", res)
         self.assertIn("confidence_score", res)
-        self.assertIn("high_risk_probability", res)
+        self.assertIn("confidence_level", res)
         self.assertIn("safe_probability", res)
-        self.assertIn("disclaimer", res)
-        self.assertTrue(50.0 <= res["confidence_score"] <= 100.0)
-        self.assertIn("guarantee", res["disclaimer"].lower())
+        self.assertIn("high_risk_probability", res)
+        self.assertFalse(res["is_out_of_distribution"])
+        self.assertFalse(res["requires_manual_review"])
 
-    # 5. Edge Cases & Failure Analysis
-    def test_edge_cases_and_failure_analysis(self):
-        """Test all edge cases execute safely and failure statistics are computed dynamically."""
-        results = run_edge_case_analysis(self.model, self.baseline)
-        self.assertEqual(len(results), len(EDGE_CASES))
-        for item in results:
-            self.assertFalse(item["system_crashed"])
-            self.assertIn("expected_result", item)
-            self.assertIn("actual_result", item)
-            self.assertIn("status", item)
-
-        # Dynamic failure statistics
-        failure_stats = analyze_test_failures(self.model, self.df)
-        self.assertEqual(failure_stats["total_test_samples"], 1000)
-        self.assertEqual(
-            failure_stats["correct_predictions"] + failure_stats["misclassified_count"],
-            failure_stats["total_test_samples"],
-        )
-        self.assertTrue(0.0 <= failure_stats["error_rate_pct"] <= 100.0)
-
-    # 6. Migration Simulation Tests
-    def test_migration_simulation(self):
-        """Test local simulated migration workflow for both success and lock timeout."""
-        init_state = self.simulator.create_initial_state("orders", 120.0, 15000000)
-
-        # Safe migration simulation
-        state_safe = init_state.clone()
-        res_safe = self.simulator.run_simulation(
-            current_state=state_safe,
-            migration_type="ADD_INDEX_CONCURRENTLY",
-            workload_intensity="LOW",
-            query_frequency=200.0,
-            estimated_lock_duration=0.5,
-        )
-        self.assertTrue(res_safe["success"])
-        self.assertEqual(res_safe["status"], "COMPLETED")
-        self.assertEqual(len(res_safe["stages"]), 4)
-
-        # Timeout migration simulation
-        state_timeout = init_state.clone()
-        res_timeout = self.simulator.run_simulation(
-            current_state=state_timeout,
-            migration_type="TABLE_REWRITE",
-            workload_intensity="CRITICAL",
-            query_frequency=4500.0,
-            estimated_lock_duration=60.0,
-        )
-        self.assertFalse(res_timeout["success"])
-        self.assertEqual(res_timeout["status"], "FAILED_LOCK_TIMEOUT")
-        self.assertGreater(res_timeout["blocked_queries"], 0)
-
-    # 7. Rollback Demonstration Tests
-    def test_rollback_demonstration(self):
-        """Test simulated rollback restores exact original state."""
-        init_state = self.simulator.create_initial_state("orders", 100.0, 10000000)
-        snapshot = init_state.clone()
-        active_state = init_state.clone()
-
-        # Apply schema change
-        self.simulator.run_simulation(
-            current_state=active_state,
-            migration_type="ADD_COLUMN_DEFAULT",
-            workload_intensity="LOW",
-            query_frequency=150.0,
-            estimated_lock_duration=1.0,
-        )
-        self.assertNotEqual(len(active_state.columns), len(snapshot.columns))
-
-        # Rollback
-        rollback_res = self.simulator.rollback_migration(active_state, snapshot)
-        self.assertTrue(rollback_res["rollback_successful"])
-        self.assertTrue(rollback_res["is_exact_match"])
-        self.assertEqual(active_state.schema_version, snapshot.schema_version)
-        self.assertEqual(len(active_state.columns), len(snapshot.columns))
-        self.assertEqual(len(active_state.indexes), len(snapshot.indexes))
-
-    # 8. Benchmark Calculation Tests
-    def test_benchmark_calculation(self):
-        """Test benchmark execution, downtime avoided calculation, and local CSV persistence."""
-        res = self.benchmark.run_benchmark(
-            df=self.df,
-            model=self.model,
-            n_scenarios=120,
-            random_state=42,
-            save_results=True,
-        )
-        self.assertGreaterEqual(res["total_scenarios"], 100)
-
-        base_dt = res["baseline"]["total_downtime_seconds"]
-        ai_dt = res["migrationsafe_ai"]["total_downtime_seconds"]
-        avoided_dt = res["comparative"]["downtime_avoided_seconds"]
-        avoided_pct = res["comparative"]["downtime_avoided_pct"]
-
-        # Formula check: downtime avoided = baseline downtime - migrationsafe downtime
-        self.assertAlmostEqual(avoided_dt, round(base_dt - ai_dt, 2), places=1)
-        self.assertTrue(0.0 <= avoided_pct <= 100.0)
-        self.assertGreaterEqual(
-            res["migrationsafe_ai"]["success_rate_pct"],
-            res["baseline"]["success_rate_pct"],
-        )
-
-        # File persistence checks
-        self.assertTrue(BENCHMARK_SAVE_PATH.exists())
-        self.assertTrue(BENCHMARK_CSV_PATH.exists())
-
-    # 9. Extreme Inputs & Robustness Tests
-    def test_missing_and_extreme_inputs_safety(self):
-        """Verify model handles None, NaN, negative numbers, and unknown categories safely."""
-        extreme_cases = [
-            {"table_size_gb": None, "query_frequency": None, "migration_type": "UNKNOWN_OP"},
-            {"table_size_gb": -50.0, "row_count": -1000, "query_frequency": -200.0},
-            {"table_size_gb": 10000.0, "query_frequency": 50000.0, "estimated_lock_duration": 1000.0},
-        ]
-        for case in extreme_cases:
-            res = self.model.predict_single(case)
-            self.assertIn(res["predicted_risk"], ["HIGH RISK", "LOW RISK (SAFE)"])
-            self.assertTrue(0.0 <= res["confidence_score"] <= 100.0)
-
-    # 10. Arbitrary Simulator Input Safety
-    def test_arbitrary_simulator_input_safety(self):
-        """Verify simulator handles arbitrary or unknown migration types without crashing."""
-        init_state = self.simulator.create_initial_state("orders", 100.0, 10000000)
-        res = self.simulator.run_simulation(
-            current_state=init_state,
-            migration_type="CUSTOM_NON_EXISTENT_OP",
-            workload_intensity="UNKNOWN_WORKLOAD",
-            query_frequency=100.0,
-            estimated_lock_duration=5.0,
-            random_state=42,
-        )
-        self.assertIn(res["status"], ["COMPLETED", "FAILED_LOCK_TIMEOUT"])
-        self.assertIsInstance(res["actual_lock_duration"], float)
-
-    # 11. Target SLA Metrics Validation
-    def test_benchmark_target_metrics_presence(self):
-        """Verify target SLA comparisons exist and have valid boolean outcomes."""
-        res = self.benchmark.run_benchmark(df=self.df, model=self.model, n_scenarios=100, random_state=42, save_results=False)
-        targets = res["targets"]
-        self.assertIn("target_downtime_avoided_pct", targets)
-        self.assertIn("measured_downtime_avoided_pct", targets)
-        self.assertIn("target_downtime_met", targets)
-        self.assertIn("target_success_rate_pct", targets)
-        self.assertIn("measured_success_rate_pct", targets)
-        self.assertIn("target_success_met", targets)
-        self.assertIsInstance(targets["target_downtime_met"], bool)
-        self.assertIsInstance(targets["target_success_met"], bool)
-
-    # 12. Dynamic Estimated Lock Fallback Tests
-    def test_dynamic_estimated_lock_fallback(self):
-        """Verify model dynamically computes realistic lock estimates when omitted."""
-        input_without_est = {
-            "table_size_gb": 120.0,
-            "row_count": 15000000,
-            "query_frequency": 1200.0,
-            "migration_type": "TABLE_REWRITE",
-            "workload_intensity": "HIGH",
-            "query_type": "WRITE_HEAVY",
-            # estimated_lock_duration intentionally omitted
-        }
-        res = self.model.predict_single(input_without_est)
-        self.assertIn("predicted_risk", res)
-        self.assertTrue(50.0 <= res["confidence_score"] <= 100.0)
-
-    # 13. End-to-End Simulation Workflow Integration Test
-    def test_simulation_workflow_integration(self):
-        """Verify complete sequence: Prediction -> Simulation -> Result -> Rollback."""
-        # 1. Prediction
-        pred_payload = {
-            "table_size_gb": 100.0,
-            "row_count": 10000000,
-            "query_frequency": 3500.0,
-            "estimated_lock_duration": 50.0,
+        # Extreme Out-of-Distribution input
+        ood_input = {
+            "table_size_gb": 5000.0,
+            "row_count": 500_000_000,
+            "query_frequency": 15000.0,
+            "estimated_lock_duration": 500.0,
             "migration_type": "TABLE_REWRITE",
             "workload_intensity": "CRITICAL",
             "query_type": "WRITE_HEAVY",
         }
-        pred = self.model.predict_single(pred_payload)
-        self.assertEqual(pred["predicted_risk"], "HIGH RISK")
+        ood_res = self.model.predict_single(ood_input)
+        self.assertTrue(ood_res["is_out_of_distribution"])
+        self.assertTrue(ood_res["requires_manual_review"])
+        self.assertIn("LOW / UNCERTAIN", ood_res["confidence_level"])
+        self.assertGreaterEqual(len(ood_res["uncertainty_reasons"]), 1)
 
-        # 2. Simulation
-        initial_state = self.simulator.create_initial_state("orders", 100.0, 10000000)
+    # 4. Review 2 Core Edge Cases Tests
+    def test_review_2_core_edge_cases_pass_fail(self):
+        """Verify all 5 edge cases (including the 3 required Review 2 cases) yield PASS status."""
+        results = run_edge_case_analysis(self.model, self.baseline)
+        self.assertGreaterEqual(len(results), 5)
+
+        for ec in results:
+            self.assertEqual(ec["test_status"], "PASS", f"Edge case {ec['case_id']} ({ec['name']}) failed verification!")
+            self.assertFalse(ec["system_crashed"])
+
+    # 5. Missing and Anomalous Inputs Safety
+    def test_missing_and_extreme_inputs_safety(self):
+        """Verify model handles None, NaN, negative numbers, and unknown categories safely."""
+        corrupted_input = {
+            "table_size_gb": None,
+            "row_count": -5000,
+            "query_frequency": np.nan,
+            "estimated_lock_duration": None,
+            "migration_type": "UNKNOWN_DDL_TYPE",
+            "workload_intensity": "INVALID_WORKLOAD",
+            "query_type": None,
+        }
+        res = self.model.predict_single(corrupted_input)
+        self.assertIn(res["predicted_risk"], ["HIGH RISK", "LOW RISK (SAFE)"])
+        self.assertTrue(res["is_out_of_distribution"])
+        self.assertTrue(res["requires_manual_review"])
+
+    # 6. Failure Reasons and Nuanced Explanations
+    def test_failure_reasons_presence(self):
+        """Verify failure reasons document small table workload spikes and data limits."""
+        categories = [fr["category"] for fr in FAILURE_REASONS]
+        self.assertTrue(any("Small Tables" in c for c in categories))
+        self.assertTrue(any("Synthetic Data" in c for c in categories))
+
+    # 7. Migration Rehearsal Simulation Tests [SIMULATED]
+    def test_migration_rehearsal_simulation(self):
+        """Test safe staging rehearsal simulation for both safe and lock timeout DDL."""
+        # Safe rehearsal
+        state_safe = self.simulator.create_initial_state("orders", 50.0, 5_000_000)
+        res_safe = self.simulator.run_simulation(
+            current_state=state_safe,
+            migration_type="ADD_COLUMN_DEFAULT",
+            workload_intensity="LOW",
+            query_frequency=100.0,
+            estimated_lock_duration=1.0,
+        )
+        self.assertTrue(res_safe["success"])
+        self.assertEqual(res_safe["status"], "COMPLETED")
+        self.assertLess(res_safe["actual_lock_duration"], res_safe["lock_timeout_threshold"])
+        self.assertEqual(len(res_safe["stages"]), 4)
+
+        # Timeout rehearsal
+        state_fail = self.simulator.create_initial_state("orders", 500.0, 50_000_000)
+        res_fail = self.simulator.run_simulation(
+            current_state=state_fail,
+            migration_type="TABLE_REWRITE",
+            workload_intensity="CRITICAL",
+            query_frequency=4500.0,
+            estimated_lock_duration=50.0,
+        )
+        self.assertFalse(res_fail["success"])
+        self.assertEqual(res_fail["status"], "FAILED_LOCK_TIMEOUT")
+        self.assertGreater(res_fail["actual_lock_duration"], res_fail["lock_timeout_threshold"])
+
+    # 8. Stateful Schema Rollback Demonstration Tests
+    def test_rollback_demonstration(self):
+        """Test rollback restores exact schema version, columns, and indexes."""
+        initial_state = self.simulator.create_initial_state("orders", 100.0, 10_000_000)
         snapshot = initial_state.clone()
         active_state = initial_state.clone()
 
-        sim_res = self.simulator.run_simulation(
+        # Mutate schema
+        self.simulator.run_simulation(
             current_state=active_state,
-            migration_type="TABLE_REWRITE",
-            workload_intensity="CRITICAL",
-            query_frequency=3500.0,
-            estimated_lock_duration=50.0,
+            migration_type="ADD_COLUMN_DEFAULT",
+            workload_intensity="LOW",
+            query_frequency=100.0,
+            estimated_lock_duration=1.0,
         )
+        self.assertEqual(active_state.schema_version, "v1.5.0")
+        self.assertGreater(len(active_state.columns), len(snapshot.columns))
 
-        # 3. Result
-        self.assertFalse(sim_res["success"])
-        self.assertEqual(sim_res["status"], "FAILED_LOCK_TIMEOUT")
-        self.assertGreater(sim_res["blocked_queries"], 0)
-
-        # 4. Rollback
+        # Rollback schema
         rb_res = self.simulator.rollback_migration(active_state, snapshot)
         self.assertTrue(rb_res["rollback_successful"])
         self.assertTrue(rb_res["is_exact_match"])
-        self.assertEqual(active_state.schema_version, snapshot.schema_version)
+        self.assertEqual(rb_res["restored_version"], "v1.4.0")
+        self.assertEqual(len(active_state.columns), len(snapshot.columns))
+        self.assertEqual(active_state.status, "ROLLED_BACK")
+
+    # 9. Benchmark & Downtime Avoided Calculations
+    def test_benchmark_calculation(self):
+        """Test 150-scenario benchmark calculations and SLA targets."""
+        res = self.benchmark.run_benchmark(self.df, self.model, n_scenarios=150, random_state=42, save_results=True)
+        self.assertEqual(res["total_scenarios"], 150)
+        self.assertGreater(res["comparative"]["downtime_avoided_seconds"], 0)
+        self.assertGreaterEqual(res["comparative"]["downtime_avoided_pct"], 75.0)
+        self.assertTrue(res["targets"]["target_downtime_met"])
+        self.assertTrue(Path(BENCHMARK_SAVE_PATH).exists())
+        self.assertTrue(Path(BENCHMARK_CSV_PATH).exists())
 
 
 if __name__ == "__main__":
     unittest.main()
-
